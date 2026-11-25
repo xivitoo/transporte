@@ -196,7 +196,7 @@ function buildAppShell(): string {
         <div class="h-[54px] md:h-[60px] px-4 md:px-6 flex items-center justify-between gap-4 lg:gap-8">
           <!-- Marca (solo icono) -->
           <a href="${import.meta.env.BASE_URL}" id="brand-reset" aria-label="${APP_NAME} — Inicio" title="${APP_NAME}" class="inline-flex items-center justify-center shrink-0 focus-visible:outline-2 focus-visible:outline-emerald-700 rounded-xl min-w-[44px] min-h-[44px]">
-            <img src="${import.meta.env.BASE_URL}icon.svg" alt="${APP_NAME}" class="w-9 h-9 rounded-xl shrink-0 shadow-xs" />
+            <img src="${import.meta.env.BASE_URL}pwa-192x192.png" alt="${APP_NAME}" class="w-9 h-9 rounded-xl shrink-0 shadow-xs object-cover" />
           </a>
 
           <!-- Enlaces en escritorio -->
