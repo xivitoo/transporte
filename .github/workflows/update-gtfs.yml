@@ -49,7 +49,15 @@ jobs:
             npm install --no-audit --no-fund --legacy-peer-deps
           fi
 
+      - name: Cachear datos GTFS procesados
+        id: gtfs-cache
+        uses: actions/cache@v4
+        with:
+          path: public/data
+          key: gtfs-data-${{ hashFiles('gtfs/**', 'scripts/process-gtfs.mjs') }}
+
       - name: Procesar archivos GTFS (filtrando solo Granada)
+        if: steps.gtfs-cache.outputs.cache-hit != 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: node scripts/process-gtfs.mjs
 
       - name: Compilar aplicación web y PWA
