@@ -49,8 +49,9 @@ async function startServer() {
     }
 
     try {
+      const timeoutMs = subPath.startsWith('/ctagr/') ? 24_000 : 10_000;
       const upstream = await fetch(`${MOVGR_BASE}${subPath}`, {
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: {
           Accept: 'application/json',
           'User-Agent': 'GranadaMueve-PWA/1.0',

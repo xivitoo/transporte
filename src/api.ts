@@ -40,24 +40,58 @@ async function loadSchedules(): Promise<ScheduleData> {
   }
 }
 
-async function fetchMovgrJson<T>(apiPath: string): Promise<T> {
+function createRequestSignal(
+  timeoutMs: number,
+  externalSignal?: AbortSignal
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs);
+
+  const onExternalAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      globalThis.clearTimeout(timer);
+      externalSignal?.removeEventListener('abort', onExternalAbort);
+    },
+  };
+}
+
+async function fetchMovgrJson<T>(apiPath: string, externalSignal?: AbortSignal): Promise<T> {
+  // CTAGR interurbano suele tardar ~10-15 s en responder; damos margen amplio para no caer en Offline prematuramente
+  const timeoutMs = apiPath.startsWith('/ctagr/') ? 22_000 : 9_000;
+
   // 1. Si hay un Worker/proxy propio configurado (p. ej. Cloudflare Worker para GitHub Pages), usarlo directamente
   if (MOVGR_PROXY_URL) {
-    const workerRes = await fetch(`${MOVGR_PROXY_URL}${apiPath}`, {
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!workerRes.ok) {
-      throw new Error(`HTTP ${workerRes.status}`);
+    const req = createRequestSignal(timeoutMs, externalSignal);
+    try {
+      const workerRes = await fetch(`${MOVGR_PROXY_URL}${apiPath}`, {
+        signal: req.signal,
+      });
+      if (!workerRes.ok) {
+        throw new Error(`HTTP ${workerRes.status}`);
+      }
+      return (await workerRes.json()) as T;
+    } finally {
+      req.cleanup();
     }
-    return (await workerRes.json()) as T;
   }
 
   // 2. En entornos con servidor Node/Express (desarrollo o VPS), probar proxy local /api/movgr/*
   const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
   if (!isGitHubPages) {
+    const req = createRequestSignal(timeoutMs, externalSignal);
     try {
       const proxyRes = await fetch(`/api/movgr${apiPath}`, {
-        signal: AbortSignal.timeout(7000),
+        signal: req.signal,
       });
       if (proxyRes.ok) {
         return (await proxyRes.json()) as T;
@@ -66,22 +100,30 @@ async function fetchMovgrJson<T>(apiPath: string): Promise<T> {
         throw new Error(`HTTP ${proxyRes.status}`);
       }
     } catch (err) {
+      if (externalSignal?.aborted) throw err;
       if (err instanceof TypeError || (err instanceof Error && err.message === 'HTTP 404')) {
         // continuar al intento directo
       } else if (!navigator.onLine) {
         throw err;
       }
+    } finally {
+      req.cleanup();
     }
   }
 
-  // 3. Fallback directo a MovGR API
-  const directRes = await fetch(`${MOVGR_DIRECT}${apiPath}`, {
-    signal: AbortSignal.timeout(7000),
-  });
-  if (!directRes.ok) {
-    throw new Error(`HTTP ${directRes.status}`);
+  // 3. Fallback directo a MovGR
+  const req = createRequestSignal(timeoutMs, externalSignal);
+  try {
+    const directRes = await fetch(`${MOVGR_DIRECT}${apiPath}`, {
+      signal: req.signal,
+    });
+    if (!directRes.ok) {
+      throw new Error(`HTTP ${directRes.status}`);
+    }
+    return (await directRes.json()) as T;
+  } finally {
+    req.cleanup();
   }
-  return (await directRes.json()) as T;
 }
 
 function getCurrentDayInfo(now: Date): { bucket: Exclude<DayBucket, 'all'>; label: string } {
@@ -250,7 +292,8 @@ function resolveMovgrStopId(stop: Stop): string | null {
 
 export async function fetchStopArrivals(
   stop: Stop,
-  routesById: Map<string, Route>
+  routesById: Map<string, Route>,
+  signal?: AbortSignal
 ): Promise<StopArrivalsResult> {
   const apiStopId = resolveMovgrStopId(stop);
 
@@ -260,7 +303,10 @@ export async function fetchStopArrivals(
       let vehicles: VehicleItem[] = [];
 
       if (stop.mode === 'urbano') {
-        const data = await fetchMovgrJson<RawBusArrivalResponse>(`/bus/llegadas/${encodeURIComponent(apiStopId)}`);
+        const data = await fetchMovgrJson<RawBusArrivalResponse>(
+          `/bus/llegadas/${encodeURIComponent(apiStopId)}`,
+          signal
+        );
         liveArrivals = (data.proximos || []).map((p) => {
           const fallbackRoute = routesById.get(`urbano:${p.linea.id}`);
           return {
@@ -273,7 +319,10 @@ export async function fetchStopArrivals(
           };
         });
       } else if (stop.mode === 'interurbano') {
-        const data = await fetchMovgrJson<RawCtagrArrivalResponse>(`/ctagr/llegadas/${encodeURIComponent(apiStopId)}`);
+        const data = await fetchMovgrJson<RawCtagrArrivalResponse>(
+          `/ctagr/llegadas/${encodeURIComponent(apiStopId)}`,
+          signal
+        );
         liveArrivals = (data.proximos || []).map((p) => {
           const fallbackRoute = routesById.get(`interurbano:${p.linea.id}`);
           const rawColor = p.linea.color && p.linea.color !== 'FFFFFF' ? p.linea.color : fallbackRoute?.color || '2563EB';
@@ -298,7 +347,10 @@ export async function fetchStopArrivals(
             seenAt: v.visto,
           }));
       } else if (stop.mode === 'metro') {
-        const data = await fetchMovgrJson<RawMetroArrivalResponse>(`/metro/llegadas/${encodeURIComponent(apiStopId)}`);
+        const data = await fetchMovgrJson<RawMetroArrivalResponse>(
+          `/metro/llegadas/${encodeURIComponent(apiStopId)}`,
+          signal
+        );
         liveArrivals = (data.proximos || []).map((p) => ({
           lineId: '1',
           lineName: 'Metro de Granada',
@@ -316,6 +368,9 @@ export async function fetchStopArrivals(
         vehicles,
       };
     } catch (err) {
+      if (signal?.aborted) {
+        throw err;
+      }
       const schedules = await loadSchedules();
       const { items: gtfsArrivals, dayLabel: gtfsDayLabel, hasGtfsData } = getGtfsScheduledArrivals(
         stop,
@@ -387,10 +442,13 @@ interface RawCtagrLineDetail {
   }>;
 }
 
-export async function fetchLineVehicles(route: Route): Promise<VehicleItem[]> {
+export async function fetchLineVehicles(route: Route, signal?: AbortSignal): Promise<VehicleItem[]> {
   if (route.mode !== 'interurbano' || !navigator.onLine) return [];
   try {
-    const data = await fetchMovgrJson<RawCtagrLineDetail>(`/ctagr/lineas/${encodeURIComponent(route.id)}`);
+    const data = await fetchMovgrJson<RawCtagrLineDetail>(
+      `/ctagr/lineas/${encodeURIComponent(route.id)}`,
+      signal
+    );
     return (data.vehiculos || [])
       .filter((v) => v.lat !== null && v.lon !== null)
       .map((v) => ({

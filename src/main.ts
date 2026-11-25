@@ -610,28 +610,62 @@ async function bootstrap() {
   });
 
   let arrivalsTimer: number | null = null;
+  let arrivalsAbort: AbortController | null = null;
+  let refreshInFlight = false;
+
   const stopAutoRefresh = () => {
     if (arrivalsTimer !== null) {
       window.clearInterval(arrivalsTimer);
       arrivalsTimer = null;
     }
+    if (arrivalsAbort) {
+      arrivalsAbort.abort();
+      arrivalsAbort = null;
+    }
+    refreshInFlight = false;
   };
 
   const refreshSelectedStopArrivals = async (silent = false) => {
     const stop = state.selectedStop;
     if (!stop) return;
+    if (silent && refreshInFlight) return;
+
+    if (arrivalsAbort) {
+      arrivalsAbort.abort();
+    }
+    const controller = new AbortController();
+    arrivalsAbort = controller;
+    refreshInFlight = true;
+
     if (!silent) {
       state.arrivalsLoading = true;
       renderPanel();
     }
-    const res = await fetchStopArrivals(stop, state.routesByKey);
-    if (state.selectedStop && stopKey(state.selectedStop) === stopKey(stop)) {
-      const prevScroll = panelBody.scrollTop;
-      state.arrivals = res;
-      state.arrivalsLoading = false;
-      map.setVehicles(res.vehicles);
-      renderPanel();
-      if (silent) panelBody.scrollTop = prevScroll;
+
+    try {
+      const res = await fetchStopArrivals(stop, state.routesByKey, controller.signal);
+      if (controller.signal.aborted) return;
+      if (state.selectedStop && stopKey(state.selectedStop) === stopKey(stop)) {
+        const prevScroll = panelBody.scrollTop;
+        state.arrivals = res;
+        state.arrivalsLoading = false;
+        map.setVehicles(res.vehicles);
+        renderPanel();
+        if (silent) panelBody.scrollTop = prevScroll;
+      }
+    } catch (err) {
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        return;
+      }
+      if (state.selectedStop && stopKey(state.selectedStop) === stopKey(stop)) {
+        state.arrivalsLoading = false;
+        renderPanel();
+      }
+    } finally {
+      if (arrivalsAbort === controller) {
+        arrivalsAbort = null;
+      }
+      refreshInFlight = false;
     }
   };
 
@@ -645,9 +679,11 @@ async function bootstrap() {
     renderPanel();
 
     await refreshSelectedStopArrivals(false);
-    arrivalsTimer = window.setInterval(() => {
-      void refreshSelectedStopArrivals(true);
-    }, 25_000);
+    if (state.selectedStop && stopKey(state.selectedStop) === stopKey(stop)) {
+      arrivalsTimer = window.setInterval(() => {
+        void refreshSelectedStopArrivals(true);
+      }, 25_000);
+    }
   };
 
   const selectRoute = async (route: Route) => {
@@ -662,11 +698,16 @@ async function bootstrap() {
     renderPanel();
 
     if (route.mode === 'interurbano') {
-      const vehicles = await fetchLineVehicles(route);
-      if (state.selectedRoute && routeKey(state.selectedRoute) === routeKey(route)) {
+      const controller = new AbortController();
+      arrivalsAbort = controller;
+      const vehicles = await fetchLineVehicles(route, controller.signal);
+      if (!controller.signal.aborted && state.selectedRoute && routeKey(state.selectedRoute) === routeKey(route)) {
         state.lineVehicles = vehicles;
         map.setVehicles(vehicles);
         renderPanel();
+      }
+      if (arrivalsAbort === controller) {
+        arrivalsAbort = null;
       }
     } else {
       map.setVehicles([]);
@@ -811,8 +852,13 @@ async function bootstrap() {
 
     let arrivalsHtml = '';
     if (state.arrivalsLoading && !state.arrivals) {
+      const loadingHint =
+        stop.mode === 'interurbano'
+          ? 'Consultando horarios Online (puede tardar unos segundos)...'
+          : 'Consultando horarios Online...';
       arrivalsHtml = `
         <div class="space-y-2 py-2" aria-busy="true">
+          <p class="text-[13px] font-semibold text-slate-700 dark:text-[#b4bfd4]">${loadingHint}</p>
           <div class="h-16 rounded-2xl bg-white/80 dark:bg-[#2f374b]/70 border border-slate-300 dark:border-[#434e6b] animate-pulse"></div>
           <div class="h-16 rounded-2xl bg-white/80 dark:bg-[#2f374b]/70 border border-slate-300 dark:border-[#434e6b] animate-pulse"></div>
           <div class="h-16 rounded-2xl bg-white/80 dark:bg-[#2f374b]/70 border border-slate-300 dark:border-[#434e6b] animate-pulse"></div>
