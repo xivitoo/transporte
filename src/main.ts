@@ -1103,15 +1103,15 @@ async function bootstrap() {
               ? `<button type="button" data-fav-clear-key="${escapeHtml(key)}" class="fav-clear-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-[#f28b82] dark:border-red-900/50 cursor-pointer active:scale-95">Quitar</button>`
               : ''
           }
-          <form data-fav-custom-form="${escapeHtml(key)}" class="fav-custom-form flex items-center gap-1.5 w-full mt-1">
+          <form data-fav-custom-form="${escapeHtml(key)}" class="fav-custom-form flex items-center gap-2 w-full mt-1.5">
             <input
               type="text"
-              maxlength="20"
+              maxlength="24"
               value="${escapeHtml(labelText)}"
-              placeholder="Etiqueta personalizada..."
-              class="flex-1 min-h-[36px] px-2.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-[#252b3b] text-slate-900 dark:text-[#edf1f7] border border-slate-300 dark:border-[#434e6b] focus:outline-none focus:border-slate-600 dark:focus:border-[#7ee0c6]"
+              placeholder="Etiqueta personalizada (ej. Gimnasio)..."
+              class="fav-custom-input flex-1 min-h-[42px] px-3 rounded-xl text-sm font-semibold bg-slate-50 dark:bg-[#252b3b] text-slate-900 dark:text-[#edf1f7] border border-slate-300 dark:border-[#434e6b] focus:outline-none focus:border-slate-600 dark:focus:border-[#7ee0c6]"
             />
-            <button type="submit" class="min-h-[36px] px-3 rounded-xl bg-slate-900 dark:bg-[#7ee0c6] text-white dark:text-[#18202c] text-xs font-bold cursor-pointer">OK</button>
+            <button type="submit" class="min-h-[42px] px-3.5 rounded-xl bg-slate-900 dark:bg-[#7ee0c6] text-white dark:text-[#18202c] text-xs font-extrabold cursor-pointer active:scale-95">Guardar</button>
           </form>
         </div>
       `
@@ -1334,7 +1334,12 @@ async function bootstrap() {
           </p>
           ${
             isFav
-              ? `
+              ? (() => {
+                  const isCustomActive =
+                    Boolean(currentFavLabel) &&
+                    !PRESET_FAV_LABELS.some((p) => normalizeText(p) === normalizeText(currentFavLabel));
+                  const isEditingThis = state.editingFavLabelKey === key;
+                  return `
             <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
               <span class="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-[#98a5c2] mr-1">Etiqueta:</span>
               ${PRESET_FAV_LABELS.map((preset) => {
@@ -1345,7 +1350,7 @@ async function bootstrap() {
                     type="button"
                     data-fav-preset-key="${escapeHtml(key)}"
                     data-fav-preset-val="${escapeHtml(preset)}"
-                    class="fav-preset-btn min-h-[34px] px-2.5 rounded-xl text-xs font-bold border cursor-pointer active:scale-95 ${
+                    class="fav-preset-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold border cursor-pointer active:scale-95 ${
                       active
                         ? 'bg-slate-900 text-white border-slate-900 dark:bg-[#7ee0c6] dark:text-[#18202c] dark:border-[#7ee0c6]'
                         : 'bg-white text-slate-800 border-slate-300 dark:bg-[#2f374b] dark:text-[#d5dceb] dark:border-[#434e6b]'
@@ -1353,13 +1358,41 @@ async function bootstrap() {
                   >${icon} ${preset}</button>
                 `;
               }).join('')}
+              <button
+                type="button"
+                data-fav-edit-key="${escapeHtml(key)}"
+                class="fav-edit-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold border cursor-pointer active:scale-95 ${
+                  isCustomActive || isEditingThis
+                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-[#7ee0c6] dark:text-[#18202c] dark:border-[#7ee0c6]'
+                    : 'bg-white text-slate-800 border-slate-300 dark:bg-[#2f374b] dark:text-[#d5dceb] dark:border-[#434e6b]'
+                }"
+              >
+                ${isCustomActive ? `🏷️ ${escapeHtml(currentFavLabel)}` : '✏️ Otra'}
+              </button>
               ${
                 currentFavLabel
-                  ? `<button type="button" data-fav-clear-key="${escapeHtml(key)}" class="fav-clear-btn min-h-[34px] px-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-[#f28b82] dark:border-red-900/50 cursor-pointer active:scale-95">Quitar</button>`
+                  ? `<button type="button" data-fav-clear-key="${escapeHtml(key)}" class="fav-clear-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-[#f28b82] dark:border-red-900/50 cursor-pointer active:scale-95">Quitar</button>`
+                  : ''
+              }
+              ${
+                isEditingThis
+                  ? `
+                <form data-fav-custom-form="${escapeHtml(key)}" class="fav-custom-form flex items-center gap-2 w-full mt-1.5">
+                  <input
+                    type="text"
+                    maxlength="24"
+                    value="${escapeHtml(currentFavLabel)}"
+                    placeholder="Escribe una etiqueta personalizada..."
+                    class="fav-custom-input flex-1 min-h-[42px] px-3 rounded-xl text-sm font-semibold bg-white dark:bg-[#2f374b] text-slate-900 dark:text-[#edf1f7] border border-slate-300 dark:border-[#434e6b] focus:outline-none focus:border-slate-600 dark:focus:border-[#7ee0c6]"
+                  />
+                  <button type="submit" class="min-h-[42px] px-3.5 rounded-xl bg-slate-900 dark:bg-[#7ee0c6] text-white dark:text-[#18202c] text-xs font-extrabold cursor-pointer active:scale-95">Guardar</button>
+                </form>
+              `
                   : ''
               }
             </div>
-          `
+          `;
+                })()
               : ''
           }
         </div>
@@ -1773,8 +1806,15 @@ async function bootstrap() {
       btn.addEventListener('click', () => {
         const key = btn.dataset.favEditKey;
         if (!key) return;
-        state.editingFavLabelKey = state.editingFavLabelKey === key ? null : key;
+        const opening = state.editingFavLabelKey !== key;
+        state.editingFavLabelKey = opening ? key : null;
+        const prevScroll = panelBody.scrollTop;
         renderPanel();
+        panelBody.scrollTop = prevScroll;
+        if (opening) {
+          const input = panelBody.querySelector<HTMLInputElement>('.fav-custom-input');
+          input?.focus();
+        }
       });
     });
 
