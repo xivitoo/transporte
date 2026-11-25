@@ -1,0 +1,76 @@
+name: Actualizar GTFS y Desplegar en GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'gtfs/**'
+      - 'scripts/process-gtfs.mjs'
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'vite.config.ts'
+      - '.github/workflows/update-gtfs.yml'
+  workflow_dispatch:
+  schedule:
+    # Sincronización semanal opcional los lunes a las 04:00 UTC
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configurar GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Instalar dependencias de compilación
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --legacy-peer-deps
+          else
+            npm install --no-audit --no-fund --legacy-peer-deps
+          fi
+
+      - name: Procesar archivos GTFS (filtrando solo Granada)
+        run: node scripts/process-gtfs.mjs
+
+      - name: Compilar aplicación web y PWA
+        env:
+          VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          VITE_CARTODB_API_KEY: ${{ secrets.VITE_CARTODB_API_KEY || vars.VITE_CARTODB_API_KEY }}
+          VITE_MOVGR_PROXY_URL: ${{ secrets.VITE_MOVGR_PROXY_URL || vars.VITE_MOVGR_PROXY_URL }}
+        run: npm run build
+
+      - name: Subir artefacto para GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

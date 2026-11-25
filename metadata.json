@@ -1,0 +1,6 @@
+{
+  "name": "Granada Mueve",
+  "description": "Mapa y horarios en tiempo real del transporte público de Granada: Bus Urbano, Bus Interurbano (CTAGR) y Metro de Granada.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
