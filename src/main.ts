@@ -289,8 +289,8 @@ function buildAppShell(): string {
           ></div>
 
           <!-- Controles flotantes del mapa (debajo del selector en móvil, esquina superior derecha en escritorio) -->
-          <div class="absolute top-[74px] md:top-3 right-3 z-10 flex flex-col items-end gap-2.5">
-            <div class="flex items-center gap-2">
+          <div class="absolute top-[86px] md:top-3 right-3 z-10 flex flex-col items-end gap-3">
+            <div class="flex items-center gap-2.5">
               <button
                 id="btn-toggle-routes"
                 type="button"
@@ -359,14 +359,14 @@ function buildAppShell(): string {
             </div>
           </div>
 
-          <span class="md:hidden absolute top-[74px] left-3 z-10 px-2 py-0.5 rounded-md bg-[#eef2f7]/90 dark:bg-[#252b3b]/90 backdrop-blur-sm border border-slate-300/70 dark:border-[#434e6b]/70 text-[10px] font-medium text-slate-700 dark:text-[#b4bfd4] pointer-events-none">
+          <span class="md:hidden absolute top-[86px] left-3 z-10 px-2.5 py-1 rounded-lg bg-[#eef2f7]/90 dark:bg-[#252b3b]/90 backdrop-blur-sm border border-slate-300/70 dark:border-[#434e6b]/70 text-[10px] font-medium text-slate-700 dark:text-[#b4bfd4] pointer-events-none">
             © CARTO · OSM
           </span>
 
           <!-- Aviso modo Offline -->
           <div
             id="offline-banner"
-            class="hidden absolute top-[104px] md:top-[70px] left-3 z-20 px-3 py-1.5 rounded-xl bg-amber-700 dark:bg-[#eab308] dark:text-[#18202c] text-white text-xs font-bold shadow-md"
+            class="hidden absolute top-[122px] md:top-[70px] left-3 z-20 px-3 py-1.5 rounded-xl bg-amber-700 dark:bg-[#eab308] dark:text-[#18202c] text-white text-xs font-bold shadow-md"
           >
             Offline · Red y horarios guardados
           </div>
@@ -479,7 +479,7 @@ function buildAppShell(): string {
         id="app-toast"
         role="status"
         aria-live="polite"
-        class="pointer-events-none hidden fixed top-[74px] left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white dark:bg-[#7ee0c6] dark:text-[#18202c] text-sm font-bold shadow-xl whitespace-nowrap"
+        class="pointer-events-none hidden fixed top-[90px] md:top-[74px] left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white dark:bg-[#7ee0c6] dark:text-[#18202c] text-sm font-bold shadow-xl whitespace-nowrap"
       ></div>
     </div>
   `;
@@ -963,12 +963,21 @@ async function bootstrap() {
   const matchesMode = (mode: TransitMode): boolean =>
     state.modeFilter === 'todos' || state.modeFilter === mode;
 
-  const renderLineBadge = (id: string, color: string, textColor: string, mode: TransitMode, large = false) => {
+  const renderLineBadge = (
+    id: string,
+    color: string,
+    textColor: string,
+    mode: TransitMode,
+    size: 'compact' | 'normal' | 'large' = 'normal'
+  ) => {
     const bg = color && color !== 'FFFFFF' ? `#${color}` : modeAccentColor(mode, false);
     const fg = textColor && color !== 'FFFFFF' ? `#${textColor}` : '#ffffff';
-    const sizeCls = large
-      ? 'min-w-[3.25rem] h-10 px-2.5 rounded-xl text-base font-extrabold'
-      : 'min-w-[3rem] h-8 px-2 rounded-lg text-sm font-bold';
+    const sizeCls =
+      size === 'large'
+        ? 'min-w-[3.25rem] h-10 px-2.5 rounded-xl text-base font-extrabold'
+        : size === 'compact'
+          ? 'min-w-[2.25rem] h-7 px-2 rounded-lg text-xs font-extrabold'
+          : 'min-w-[3rem] h-8 px-2 rounded-lg text-sm font-bold';
     return `<span class="inline-flex items-center justify-center ${sizeCls} tabular-nums shrink-0 shadow-2xs" style="background-color:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(id)}</span>`;
   };
 
@@ -1037,20 +1046,20 @@ async function bootstrap() {
 
         if (nextItems.length > 0) {
           previewHtml = `
-            <div class="mt-2.5 pt-2 border-t border-slate-200 dark:border-[#3c4660] flex items-center justify-between gap-2 flex-wrap">
-              <div class="flex items-center gap-2 flex-wrap">
+            <div class="mt-3 pt-2.5 border-t border-slate-200 dark:border-[#3c4660] flex items-center justify-between gap-2.5 flex-wrap">
+              <div class="flex items-center gap-2.5 flex-wrap">
                 ${nextItems
                   .map(
                     (item) => `
-                  <span class="inline-flex items-center gap-1.5 pr-2 py-0.5 rounded-xl bg-slate-100 dark:bg-[#252b3b] border border-slate-200 dark:border-[#434e6b] text-xs font-extrabold text-slate-900 dark:text-[#edf1f7] tabular-nums">
-                    ${renderLineBadge(item.lineId, item.color, item.textColor, stop.mode)}
+                  <span class="inline-flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-slate-100 dark:bg-[#252b3b] border border-slate-200 dark:border-[#434e6b] text-xs font-extrabold text-slate-900 dark:text-[#edf1f7] tabular-nums">
+                    ${renderLineBadge(item.lineId, item.color, item.textColor, stop.mode, 'compact')}
                     <span>${escapeHtml(formatMinutes(item.minutes))}</span>
                   </span>
                 `
                   )
                   .join('')}
               </div>
-              <span class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-[#b4bfd4] shrink-0">
+              <span class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-[#b4bfd4] shrink-0">
                 <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
                 ${statusLabel}
               </span>
@@ -1175,7 +1184,7 @@ async function bootstrap() {
         return `
       <div class="p-3.5 mb-2 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] flex items-center justify-between gap-3 shadow-2xs">
         <div class="flex items-center gap-3.5 min-w-0">
-          ${renderLineBadge(a.lineId, a.color, a.textColor, mode, true)}
+          ${renderLineBadge(a.lineId, a.color, a.textColor, mode, 'large')}
           <div class="min-w-0">
             <div class="text-[15px] md:text-base font-bold text-slate-950 dark:text-[#edf1f7] truncate">${escapeHtml(a.destination)}</div>
             ${
@@ -1364,11 +1373,11 @@ async function bootstrap() {
             ? `
           <div class="pt-3 border-t border-slate-300 dark:border-[#3c4660]">
             <h3 class="text-[13px] font-bold text-slate-700 dark:text-[#b4bfd4] mb-2.5">Líneas en esta parada</h3>
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2.5">
               ${passingRoutes
                 .map(
                   (r) => `
-                <button type="button" data-route-key="${escapeHtml(routeKey(r))}" class="route-row min-h-[46px] inline-flex items-center gap-2.5 pr-3.5 pl-1.5 py-1.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] active:scale-95 cursor-pointer">
+                <button type="button" data-route-key="${escapeHtml(routeKey(r))}" class="route-row min-h-[46px] inline-flex items-center gap-2.5 pl-2 pr-3.5 py-2 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] active:scale-95 cursor-pointer">
                   ${renderLineBadge(r.id, r.color, r.textColor, r.mode)}
                   <span class="text-sm font-semibold text-slate-900 dark:text-[#edf1f7] max-w-[200px] truncate">${escapeHtml(r.name)}</span>
                 </button>
@@ -1435,7 +1444,7 @@ async function bootstrap() {
         </div>
 
         <div class="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b]">
-          ${renderLineBadge(route.id, route.color, route.textColor, route.mode, true)}
+          ${renderLineBadge(route.id, route.color, route.textColor, route.mode, 'large')}
           <div class="min-w-0">
             <h2 class="text-lg font-extrabold text-slate-950 dark:text-[#edf1f7] leading-snug">${escapeHtml(route.name)}</h2>
             <p class="text-[13px] font-semibold text-slate-700 dark:text-[#b4bfd4]">
