@@ -17,8 +17,8 @@ export default defineConfig(() => {
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: basePath,
-          name: 'Granada Mueve — Transporte Público',
-          short_name: 'GranadaMueve',
+          name: 'Transporte Público Granada by XivIoT',
+          short_name: 'Transporte by XivIoT',
           description: 'Bus urbano, interurbano (CTAGR) y Metro de Granada en tiempo real y sin conexión.',
           theme_color: '#0f172a',
           background_color: '#f8fafc',
