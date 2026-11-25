@@ -14,7 +14,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png', 'og-card.jpg'],
+        includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: basePath,
           name: 'Transporte Público Granada by XivIoT',
@@ -48,7 +48,9 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
+          globIgnores: ['**/assets/aistudio/**', 'og-card.jpg'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           runtimeCaching: [
             {
@@ -59,20 +61,6 @@ export default defineConfig(() => {
                 expiration: {
                   maxEntries: 10,
                   maxAgeSeconds: 60 * 60 * 24 * 14,
-                },
-              },
-            },
-            {
-              urlPattern: /^https:\/\/[a-d]\.basemaps\.cartocdn\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'cartodb-basemaps-tiles',
-                expiration: {
-                  maxEntries: 350,
-                  maxAgeSeconds: 60 * 60 * 24 * 7,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
                 },
               },
             },

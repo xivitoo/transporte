@@ -6,6 +6,9 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export function initServiceWorker() {
+  if ('caches' in window) {
+    void caches.delete('cartodb-basemaps-tiles');
+  }
   registerSW({
     immediate: true,
     onOfflineReady() {
