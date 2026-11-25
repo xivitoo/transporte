@@ -54,7 +54,7 @@ async function startServer() {
         signal: AbortSignal.timeout(timeoutMs),
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'GranadaMueve-PWA/1.0',
+          'User-Agent': 'TransportePublicoGranada-XivIoT/1.0',
         },
       });
       const text = await upstream.text();
@@ -106,7 +106,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Granada Mueve escuchando en http://0.0.0.0:${PORT}`);
+    console.log(`Transporte Público Granada by XivIoT escuchando en http://0.0.0.0:${PORT}`);
   });
 }
 

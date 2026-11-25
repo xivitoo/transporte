@@ -6,15 +6,52 @@
     <title>Transporte Público Granada by XivIoT</title>
     <meta
       name="description"
-      content="Consulta paradas, líneas, recorridos y tiempos de llegada en tiempo real del Bus Urbano, Bus Interurbano (Consorcio de Granada) y Metro de Granada."
+      content="Consulta horarios Online y Offline, paradas cercanas, recorridos y tiempos de Bus Urbano, Interurbano (CTAGR) y Metro en Transporte Público Granada by XivIoT."
     />
+    <meta
+      name="keywords"
+      content="Transporte Público Granada by XivIoT, transporte público Granada, autobús Granada, bus urbano Granada, Rober Granada, Consorcio de Transportes de Granada, CTAGR, Metro de Granada, horarios bus Granada, paradas cercanas Granada"
+    />
+    <meta name="author" content="XivIoT" />
+    <meta name="application-name" content="Transporte Público Granada by XivIoT" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="geo.region" content="ES-GR" />
+    <meta name="geo.placename" content="Granada, Andalucía, España" />
+    <meta name="geo.position" content="37.1773;-3.5986" />
+    <meta name="ICBM" content="37.1773, -3.5986" />
+    <link rel="canonical" href="https://xivitoo.github.io/transporte/" />
+
+    <!-- OpenGraph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:url" content="https://xivitoo.github.io/transporte/" />
+    <meta property="og:site_name" content="Transporte Público Granada by XivIoT" />
     <meta property="og:title" content="Transporte Público Granada by XivIoT" />
     <meta
       property="og:description"
-      content="Consulta paradas, líneas, recorridos y tiempos de llegada en tiempo real del Bus Urbano, Bus Interurbano (Consorcio de Granada) y Metro de Granada."
+      content="Consulta horarios Online y Offline, paradas cercanas, recorridos y tiempos de Bus Urbano, Interurbano (CTAGR) y Metro en Transporte Público Granada by XivIoT."
     />
-    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://xivitoo.github.io/transporte/og-card.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta
+      property="og:image:alt"
+      content="Mapa interactivo de Transporte Público Granada by XivIoT con Bus Urbano, Interurbano y Metro"
+    />
+
+    <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Transporte Público Granada by XivIoT" />
+    <meta
+      name="twitter:description"
+      content="Consulta horarios Online y Offline, paradas cercanas, recorridos y tiempos de Bus Urbano, Interurbano (CTAGR) y Metro en Transporte Público Granada by XivIoT."
+    />
+    <meta name="twitter:image" content="https://xivitoo.github.io/transporte/og-card.jpg" />
+    <meta
+      name="twitter:image:alt"
+      content="Mapa interactivo de Transporte Público Granada by XivIoT"
+    />
+
+    <!-- PWA & Dispositivos -->
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -22,9 +59,98 @@
     <meta name="apple-mobile-web-app-title" content="Transporte Público Granada by XivIoT" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%icon.svg" />
+
+    <!-- Datos estructurados Schema.org -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://xivitoo.github.io/transporte/#app",
+            "name": "Transporte Público Granada by XivIoT",
+            "alternateName": "Transporte Público Granada",
+            "url": "https://xivitoo.github.io/transporte/",
+            "image": "https://xivitoo.github.io/transporte/og-card.jpg",
+            "applicationCategory": "TravelApplication",
+            "operatingSystem": "All",
+            "browserRequirements": "Requires JavaScript",
+            "inLanguage": "es-ES",
+            "isAccessibleForFree": true,
+            "description": "Aplicación web progresiva (PWA) para consultar paradas, líneas, recorridos y próximos horarios Online y Offline del Bus Urbano, Bus Interurbano (Consorcio de Transportes de Granada) y Metro de Granada.",
+            "areaServed": {
+              "@type": "City",
+              "name": "Granada",
+              "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "Granada",
+                "addressRegion": "Andalucía",
+                "addressCountry": "ES"
+              }
+            },
+            "author": {
+              "@type": "Organization",
+              "name": "XivIoT",
+              "url": "https://xivitoo.github.io/transporte/"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "EUR"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://xivitoo.github.io/transporte/#website",
+            "name": "Transporte Público Granada by XivIoT",
+            "url": "https://xivitoo.github.io/transporte/",
+            "inLanguage": "es-ES"
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "¿Qué medios de transporte incluye Transporte Público Granada by XivIoT?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Incluye todas las paradas y líneas del Bus Urbano de Granada, los autobuses interurbanos del Consorcio de Transporte Metropolitano de Granada (CTAGR) y el Metro de Granada."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "¿Funciona Transporte Público Granada by XivIoT sin conexión a internet?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sí. Es una PWA instalable que guarda la red de paradas, líneas y horarios Offline para consultar las próximas salidas aunque no tengas cobertura."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "¿Puedo guardar paradas favoritas y compartir una parada por WhatsApp?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Sí. Puedes guardar paradas con etiquetas como Casa, Trabajo o Uni para ver sus próximas salidas al instante y compartir el enlace directo de cualquier parada o línea por WhatsApp."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <main style="max-width:720px;margin:2rem auto;padding:1rem;font-family:system-ui,sans-serif;color:#0f172a">
+        <h1>Transporte Público Granada by XivIoT</h1>
+        <p>Mapa interactivo y horarios Online y Offline del transporte público de Granada y su área metropolitana: Bus Urbano, Bus Interurbano (CTAGR) y Metro de Granada.</p>
+        <ul>
+          <li>Bus Urbano de Granada: paradas, recorridos y próximos tiempos de llegada.</li>
+          <li>Bus Interurbano (Consorcio de Transportes de Granada): municipios del cinturón metropolitano y vehículos en ruta.</li>
+          <li>Metro de Granada: paradas desde Albolote hasta Armilla y próximas salidas.</li>
+        </ul>
+      </main>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

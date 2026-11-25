@@ -2,11 +2,18 @@ import './index.css';
 import { fetchLineVehicles, fetchStopArrivals, loadNetworkData } from './api';
 import { GranadaTransitMap } from './map';
 import { initOnlineStatus, initPWAInstall, initServiceWorker } from './pwa';
+import { buildOrderedDirections } from './routeOrder';
 import type { Route, Stop, StopArrivalsResult, TransitMode, VehicleItem } from './types';
 
 type ActiveTab = 'explorar' | 'lineas' | 'favoritos';
 type ModeFilter = 'todos' | TransitMode;
 type SheetSnap = 'peek' | 'half' | 'full';
+
+interface FavPreviewEntry {
+  fetchedAt: number;
+  loading: boolean;
+  result: StopArrivalsResult | null;
+}
 
 interface AppState {
   tab: ActiveTab;
@@ -18,10 +25,14 @@ interface AppState {
   stopsByKey: Map<string, Stop>;
   selectedStop: Stop | null;
   selectedRoute: Route | null;
+  selectedRouteDir: number;
   arrivals: StopArrivalsResult | null;
   arrivalsLoading: boolean;
   lineVehicles: VehicleItem[];
   favorites: Set<string>;
+  favoriteLabels: Map<string, string>;
+  editingFavLabelKey: string | null;
+  favPreviews: Map<string, FavPreviewEntry>;
   userPos: { lat: number; lon: number } | null;
   locating: boolean;
   locationError: string | null;
@@ -30,9 +41,12 @@ interface AppState {
   showGlobalRoutes: boolean;
 }
 
+const APP_NAME = 'Transporte Público Granada by XivIoT';
 const FAVS_KEY = 'granada_mueve_favoritos_v1';
+const FAV_LABELS_KEY = 'granada_mueve_fav_labels_v1';
 const THEME_KEY = 'granada_mueve_tema_v1';
 const ROUTES_VIS_KEY = 'granada_mueve_rutas_v2';
+const PRESET_FAV_LABELS = ['Casa', 'Trabajo', 'Uni'] as const;
 
 function normalizeText(str: string): string {
   return str
@@ -116,12 +130,62 @@ function saveFavorites(favs: Set<string>) {
   }
 }
 
+function loadFavoriteLabels(): Map<string, string> {
+  try {
+    const raw = localStorage.getItem(FAV_LABELS_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return new Map();
+    const map = new Map<string, string>();
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string' && v.trim()) {
+        map.set(k, v.trim().slice(0, 24));
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function saveFavoriteLabels(labels: Map<string, string>) {
+  try {
+    const obj: Record<string, string> = {};
+    for (const [k, v] of labels.entries()) {
+      if (v.trim()) obj[k] = v.trim().slice(0, 24);
+    }
+    localStorage.setItem(FAV_LABELS_KEY, JSON.stringify(obj));
+  } catch {
+    // ignorar si el almacenamiento está lleno
+  }
+}
+
+function formatFavLabelBadge(label?: string): { icon: string; text: string } | null {
+  if (!label) return null;
+  const norm = normalizeText(label);
+  if (norm === 'casa') return { icon: '🏠', text: 'Casa' };
+  if (norm === 'trabajo') return { icon: '💼', text: 'Trabajo' };
+  if (norm === 'uni' || norm === 'universidad') return { icon: '🎓', text: label };
+  return { icon: '🏷️', text: label };
+}
+
 function stopKey(stop: Stop): string {
   return `${stop.mode}:${stop.id}`;
 }
 
 function routeKey(route: Route): string {
   return `${route.mode}:${route.id}`;
+}
+
+function buildShareLink(param: 'parada' | 'linea', value: string): string {
+  const base = `${window.location.origin}${window.location.pathname}`;
+  const url = new URL(base);
+  url.searchParams.set(param, value);
+  return url.toString();
+}
+
+function buildWhatsAppShareHref(text: string, url: string): string {
+  return `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`;
 }
 
 function buildAppShell(): string {
@@ -131,8 +195,8 @@ function buildAppShell(): string {
       <header class="pt-[env(safe-area-inset-top)] shrink-0 border-b border-slate-300 dark:border-[#3c4660] bg-[#eef2f7]/95 dark:bg-[#252b3b]/95 backdrop-blur-md z-30">
         <div class="h-[54px] md:h-[60px] px-4 md:px-6 flex items-center justify-between gap-4 lg:gap-8">
           <!-- Marca (solo icono) -->
-          <a href="${import.meta.env.BASE_URL}" id="brand-reset" aria-label="Granada Mueve — Inicio" title="Granada Mueve" class="inline-flex items-center justify-center shrink-0 focus-visible:outline-2 focus-visible:outline-emerald-700 rounded-xl min-w-[44px] min-h-[44px]">
-            <img src="${import.meta.env.BASE_URL}icon.svg" alt="Granada Mueve" class="w-9 h-9 rounded-xl shrink-0 shadow-xs" />
+          <a href="${import.meta.env.BASE_URL}" id="brand-reset" aria-label="${APP_NAME} — Inicio" title="${APP_NAME}" class="inline-flex items-center justify-center shrink-0 focus-visible:outline-2 focus-visible:outline-emerald-700 rounded-xl min-w-[44px] min-h-[44px]">
+            <img src="${import.meta.env.BASE_URL}icon.svg" alt="${APP_NAME}" class="w-9 h-9 rounded-xl shrink-0 shadow-xs" />
           </a>
 
           <!-- Enlaces en escritorio -->
@@ -410,6 +474,13 @@ function buildAppShell(): string {
           </button>
         </div>
       </div>
+      <!-- Toast de feedback sin bloqueo -->
+      <div
+        id="app-toast"
+        role="status"
+        aria-live="polite"
+        class="pointer-events-none hidden fixed top-[74px] left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white dark:bg-[#7ee0c6] dark:text-[#18202c] text-sm font-bold shadow-xl whitespace-nowrap"
+      ></div>
     </div>
   `;
 }
@@ -442,16 +513,49 @@ async function bootstrap() {
     stopsByKey: new Map(),
     selectedStop: null,
     selectedRoute: null,
+    selectedRouteDir: 0,
     arrivals: null,
     arrivalsLoading: false,
     lineVehicles: [],
     favorites: loadFavorites(),
+    favoriteLabels: loadFavoriteLabels(),
+    editingFavLabelKey: null,
+    favPreviews: new Map(),
     userPos: null,
     locating: false,
     locationError: null,
     sheetSnap: 'peek',
     darkTheme: initialDark,
     showGlobalRoutes: localStorage.getItem(ROUTES_VIS_KEY) === 'true',
+  };
+
+  const toastEl = document.getElementById('app-toast') as HTMLElement;
+  let toastTimer: number | null = null;
+  const showToast = (msg: string) => {
+    toastEl.textContent = msg;
+    toastEl.classList.remove('hidden');
+    if (toastTimer !== null) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      toastEl.classList.add('hidden');
+    }, 2400);
+  };
+
+  const syncUrlAndTitle = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('parada');
+    url.searchParams.delete('linea');
+
+    if (state.selectedStop) {
+      url.searchParams.set('parada', stopKey(state.selectedStop));
+      document.title = `${state.selectedStop.name} · ${APP_NAME}`;
+    } else if (state.selectedRoute) {
+      url.searchParams.set('linea', routeKey(state.selectedRoute));
+      document.title = `Línea ${state.selectedRoute.id} · ${APP_NAME}`;
+    } else {
+      document.title = APP_NAME;
+    }
+
+    window.history.replaceState(null, '', url.toString());
   };
 
   const sidePanel = document.getElementById('side-panel') as HTMLElement;
@@ -672,9 +776,12 @@ async function bootstrap() {
   const selectStop = async (stop: Stop) => {
     stopAutoRefresh();
     state.selectedStop = stop;
+    state.selectedRoute = null;
     state.arrivals = null;
     state.arrivalsLoading = true;
+    syncUrlAndTitle();
     applySheetSnap('half');
+    map.setSelectedRoute(null, false);
     map.setSelectedStop(stop, true, getMobileBottomClearance());
     renderPanel();
 
@@ -689,9 +796,11 @@ async function bootstrap() {
   const selectRoute = async (route: Route) => {
     stopAutoRefresh();
     state.selectedRoute = route;
+    state.selectedRouteDir = 0;
     state.selectedStop = null;
     state.arrivals = null;
     state.lineVehicles = [];
+    syncUrlAndTitle();
     applySheetSnap('half');
     map.setSelectedStop(null, false);
     map.setSelectedRoute(route, true, getMobileBottomClearance());
@@ -718,12 +827,104 @@ async function bootstrap() {
     stopAutoRefresh();
     state.selectedStop = null;
     state.selectedRoute = null;
+    state.selectedRouteDir = 0;
     state.arrivals = null;
     state.lineVehicles = [];
+    syncUrlAndTitle();
     map.setSelectedStop(null, false);
     map.setSelectedRoute(null, false);
     map.setVehicles([]);
     renderPanel();
+    if (state.tab === 'favoritos' || state.tab === 'explorar') {
+      void loadFavoritePreviews(false);
+    }
+  };
+
+  const getOrderedFavoriteStops = (respectModeFilter = true): Stop[] => {
+    const all = Array.from(state.favorites)
+      .map((k) => state.stopsByKey.get(k))
+      .filter((s): s is Stop => s !== undefined)
+      .filter((s) => !respectModeFilter || matchesMode(s.mode));
+
+    return all.sort((a, b) => {
+      const aLabeled = state.favoriteLabels.has(stopKey(a)) ? 0 : 1;
+      const bLabeled = state.favoriteLabels.has(stopKey(b)) ? 0 : 1;
+      return aLabeled - bLabeled;
+    });
+  };
+
+  const getKeyFavoriteStops = (limit = 3): Stop[] => getOrderedFavoriteStops(true).slice(0, limit);
+
+  let favPreviewAbort: AbortController | null = null;
+  const loadFavoritePreviews = async (force = false) => {
+    const targets = getKeyFavoriteStops(3);
+    if (targets.length === 0) return;
+
+    const now = Date.now();
+    const toFetch = targets.filter((stop) => {
+      const entry = state.favPreviews.get(stopKey(stop));
+      if (!entry) return true;
+      if (entry.loading) return false;
+      if (force) return true;
+      return now - entry.fetchedAt > 30_000;
+    });
+
+    if (toFetch.length === 0) return;
+
+    if (force && favPreviewAbort) {
+      favPreviewAbort.abort();
+    }
+    const controller = new AbortController();
+    favPreviewAbort = controller;
+
+    for (const stop of toFetch) {
+      const key = stopKey(stop);
+      const prev = state.favPreviews.get(key);
+      state.favPreviews.set(key, {
+        fetchedAt: prev?.fetchedAt ?? 0,
+        loading: true,
+        result: prev?.result ?? null,
+      });
+    }
+
+    if (!state.selectedStop && !state.selectedRoute && state.query.trim() === '' && (state.tab === 'favoritos' || state.tab === 'explorar')) {
+      const prevScroll = panelBody.scrollTop;
+      renderPanel();
+      panelBody.scrollTop = prevScroll;
+    }
+
+    await Promise.allSettled(
+      toFetch.map(async (stop) => {
+        const key = stopKey(stop);
+        try {
+          const result = await fetchStopArrivals(stop, state.routesByKey, controller.signal);
+          if (controller.signal.aborted) return;
+          state.favPreviews.set(key, {
+            fetchedAt: Date.now(),
+            loading: false,
+            result,
+          });
+        } catch {
+          if (controller.signal.aborted) return;
+          const prev = state.favPreviews.get(key);
+          state.favPreviews.set(key, {
+            fetchedAt: prev?.fetchedAt ?? Date.now(),
+            loading: false,
+            result: prev?.result ?? null,
+          });
+        }
+      })
+    );
+
+    if (favPreviewAbort === controller) {
+      favPreviewAbort = null;
+    }
+
+    if (!state.selectedStop && !state.selectedRoute && state.query.trim() === '' && (state.tab === 'favoritos' || state.tab === 'explorar')) {
+      const prevScroll = panelBody.scrollTop;
+      renderPanel();
+      panelBody.scrollTop = prevScroll;
+    }
   };
 
   const updateNavAndModeButtons = () => {
@@ -772,7 +973,9 @@ async function bootstrap() {
   };
 
   const renderStopRow = (stop: Stop, distanceMeters?: number) => {
-    const isFav = state.favorites.has(stopKey(stop));
+    const key = stopKey(stop);
+    const isFav = state.favorites.has(key);
+    const favBadge = formatFavLabelBadge(state.favoriteLabels.get(key));
     const linesStr = stop.lines.length > 0 ? `Líneas ${stop.lines.slice(0, 5).join(', ')}` : 'Parada';
     const distStr =
       distanceMeters !== undefined
@@ -783,12 +986,17 @@ async function bootstrap() {
     return `
       <button
         type="button"
-        data-stop-key="${escapeHtml(stopKey(stop))}"
+        data-stop-key="${escapeHtml(key)}"
         class="stop-row w-full min-h-[68px] py-3 px-3.5 mb-2 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] flex items-center justify-between gap-3 text-left hover:border-slate-400 dark:hover:border-[#7ee0c6] active:scale-[0.99] ui-transition cursor-pointer shadow-2xs"
       >
         <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2.5">
+          <div class="flex items-center gap-2">
             <span class="w-3 h-3 rounded-full shrink-0" style="background-color:${dotColor}"></span>
+            ${
+              favBadge
+                ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-[#384158] border border-slate-300/80 dark:border-[#4c5878] text-[11px] font-extrabold text-slate-800 dark:text-[#edf1f7] shrink-0">${favBadge.icon} ${escapeHtml(favBadge.text)}</span>`
+                : ''
+            }
             <span class="text-[15px] md:text-base font-bold text-slate-950 dark:text-[#edf1f7] truncate">${escapeHtml(stop.name)}</span>
           </div>
           <div class="mt-1 pl-5.5 text-[13px] font-medium text-slate-700 dark:text-[#b4bfd4] truncate tabular-nums">
@@ -797,6 +1005,149 @@ async function bootstrap() {
         </div>
         <span class="text-lg font-bold ${isFav ? 'text-amber-500 dark:text-[#fcd34d]' : 'text-slate-500 dark:text-[#98a5c2]'} shrink-0">${isFav ? '★' : '›'}</span>
       </button>
+    `;
+  };
+
+  const renderFavoriteStopCard = (stop: Stop, showLivePreview: boolean, allowLabelEdit = false) => {
+    const key = stopKey(stop);
+    const labelText = state.favoriteLabels.get(key) || '';
+    const favBadge = formatFavLabelBadge(labelText);
+    const munStr = stop.municipality ? ` · ${stop.municipality}` : '';
+    const dotColor = modeAccentColor(stop.mode, state.darkTheme);
+    const preview = showLivePreview ? state.favPreviews.get(key) : undefined;
+    const isEditingLabel = allowLabelEdit && state.editingFavLabelKey === key;
+
+    let previewHtml = '';
+    if (showLivePreview) {
+      if (!preview || (preview.loading && !preview.result)) {
+        previewHtml = `
+          <div class="mt-2 pt-2 border-t border-slate-200 dark:border-[#3c4660] flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-[#b4bfd4]">
+            <span class="w-2 h-2 rounded-full bg-slate-400 animate-pulse"></span>
+            Consultando próximas salidas...
+          </div>
+        `;
+      } else if (preview.result) {
+        const res = preview.result;
+        const nextItems = res.arrivals.slice(0, 2);
+        const isOffline = res.source !== 'realtime';
+        const statusDot = isOffline
+          ? 'bg-amber-600 dark:bg-[#fcd34d]'
+          : 'bg-emerald-600 dark:bg-[#7ee0c6]';
+        const statusLabel = isOffline ? 'Offline' : 'Online';
+
+        if (nextItems.length > 0) {
+          previewHtml = `
+            <div class="mt-2.5 pt-2 border-t border-slate-200 dark:border-[#3c4660] flex items-center justify-between gap-2 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap">
+                ${nextItems
+                  .map(
+                    (item) => `
+                  <span class="inline-flex items-center gap-1.5 pr-2 py-0.5 rounded-xl bg-slate-100 dark:bg-[#252b3b] border border-slate-200 dark:border-[#434e6b] text-xs font-extrabold text-slate-900 dark:text-[#edf1f7] tabular-nums">
+                    ${renderLineBadge(item.lineId, item.color, item.textColor, stop.mode)}
+                    <span>${escapeHtml(formatMinutes(item.minutes))}</span>
+                  </span>
+                `
+                  )
+                  .join('')}
+              </div>
+              <span class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-[#b4bfd4] shrink-0">
+                <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
+                ${statusLabel}
+              </span>
+            </div>
+          `;
+        } else {
+          previewHtml = `
+            <div class="mt-2 pt-2 border-t border-slate-200 dark:border-[#3c4660] flex items-center justify-between text-xs font-medium text-slate-600 dark:text-[#b4bfd4]">
+              <span>Sin salidas próximas ahora</span>
+              <span class="inline-flex items-center gap-1 text-[11px] font-bold">
+                <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
+                ${statusLabel}
+              </span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    const labelEditorHtml = isEditingLabel
+      ? `
+        <div class="mt-2.5 pt-2.5 border-t border-slate-200 dark:border-[#3c4660] flex flex-wrap items-center gap-1.5">
+          ${PRESET_FAV_LABELS.map((preset) => {
+            const active = normalizeText(labelText) === normalizeText(preset);
+            const icon = preset === 'Casa' ? '🏠' : preset === 'Trabajo' ? '💼' : '🎓';
+            return `
+              <button
+                type="button"
+                data-fav-preset-key="${escapeHtml(key)}"
+                data-fav-preset-val="${escapeHtml(preset)}"
+                class="fav-preset-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold border cursor-pointer active:scale-95 ${
+                  active
+                    ? 'bg-slate-900 text-white border-slate-900 dark:bg-[#7ee0c6] dark:text-[#18202c] dark:border-[#7ee0c6]'
+                    : 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-[#252b3b] dark:text-[#d5dceb] dark:border-[#434e6b]'
+                }"
+              >${icon} ${preset}</button>
+            `;
+          }).join('')}
+          ${
+            labelText
+              ? `<button type="button" data-fav-clear-key="${escapeHtml(key)}" class="fav-clear-btn min-h-[36px] px-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-[#f28b82] dark:border-red-900/50 cursor-pointer active:scale-95">Quitar</button>`
+              : ''
+          }
+          <form data-fav-custom-form="${escapeHtml(key)}" class="fav-custom-form flex items-center gap-1.5 w-full mt-1">
+            <input
+              type="text"
+              maxlength="20"
+              value="${escapeHtml(labelText)}"
+              placeholder="Etiqueta personalizada..."
+              class="flex-1 min-h-[36px] px-2.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-[#252b3b] text-slate-900 dark:text-[#edf1f7] border border-slate-300 dark:border-[#434e6b] focus:outline-none focus:border-slate-600 dark:focus:border-[#7ee0c6]"
+            />
+            <button type="submit" class="min-h-[36px] px-3 rounded-xl bg-slate-900 dark:bg-[#7ee0c6] text-white dark:text-[#18202c] text-xs font-bold cursor-pointer">OK</button>
+          </form>
+        </div>
+      `
+      : '';
+
+    return `
+      <div class="mb-2.5 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] p-3.5 shadow-2xs">
+        <div class="flex items-start justify-between gap-2">
+          <button
+            type="button"
+            data-stop-key="${escapeHtml(key)}"
+            class="stop-row min-w-0 flex-1 text-left cursor-pointer active:opacity-80"
+          >
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="w-3 h-3 rounded-full shrink-0" style="background-color:${dotColor}"></span>
+              ${
+                favBadge
+                  ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-[#384158] border border-slate-300/80 dark:border-[#4c5878] text-[11px] font-extrabold text-slate-800 dark:text-[#edf1f7] shrink-0">${favBadge.icon} ${escapeHtml(favBadge.text)}</span>`
+                  : ''
+              }
+              <span class="text-[15px] md:text-base font-bold text-slate-950 dark:text-[#edf1f7] truncate">${escapeHtml(stop.name)}</span>
+            </div>
+            <div class="mt-1 pl-5 text-[13px] font-medium text-slate-700 dark:text-[#b4bfd4] truncate tabular-nums">
+              ${escapeHtml(modeLabel(stop.mode))} · Cód. ${escapeHtml(stop.code)}${escapeHtml(munStr)}
+            </div>
+          </button>
+          ${
+            allowLabelEdit
+              ? `
+            <button
+              type="button"
+              data-fav-edit-key="${escapeHtml(key)}"
+              aria-label="Editar etiqueta de favorita"
+              title="Etiqueta (Casa, Trabajo, Uni)"
+              class="fav-edit-btn min-h-[36px] px-2.5 rounded-xl bg-slate-100 dark:bg-[#384158] border border-slate-300 dark:border-[#4c5878] text-xs font-bold text-slate-700 dark:text-[#d5dceb] shrink-0 cursor-pointer active:scale-95"
+            >
+              ${favBadge ? 'Editar' : '+ Etiqueta'}
+            </button>
+          `
+              : `<span class="text-lg font-bold text-amber-500 dark:text-[#fcd34d] shrink-0">★</span>`
+          }
+        </div>
+        ${previewHtml}
+        ${labelEditorHtml}
+      </div>
     `;
   };
 
@@ -919,20 +1270,52 @@ async function bootstrap() {
       }
     }
 
+    const key = stopKey(stop);
+    const currentFavLabel = state.favoriteLabels.get(key) || '';
+    const shareUrl = buildShareLink('parada', key);
+    const waHref = buildWhatsAppShareHref(
+      `Mira los horarios de la parada ${stop.name} (${modeLabel(stop.mode)}, Cód. ${stop.code}) en ${APP_NAME}:`,
+      shareUrl
+    );
+
     const passingRoutes = stop.lines
       .map((lineId) => state.routesByKey.get(`${stop.mode}:${lineId}`))
       .filter((r): r is Route => Boolean(r));
 
     return `
       <div class="space-y-3.5">
-        <div class="flex items-center justify-between gap-2">
-          <button id="btn-back-detail" type="button" class="min-h-[46px] px-3 -ml-1 inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <button id="btn-back-detail" type="button" class="min-h-[44px] px-3 -ml-1 inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg>
             Volver
           </button>
-          <button id="btn-toggle-fav" type="button" class="min-h-[46px] px-4 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
-            ${isFav ? '★ Guardada' : '☆ Guardar'}
-          </button>
+          <div class="flex items-center gap-1.5">
+            <a
+              href="${escapeHtml(waHref)}"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Enviar parada por WhatsApp"
+              class="min-h-[44px] px-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold active:scale-95 ui-transition shadow-2xs"
+            >
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.47 0 .11 5.36.11 11.95c0 2.11.55 4.17 1.6 5.98L0 24l6.23-1.63a11.9 11.9 0 0 0 5.83 1.49h.01c6.59 0 11.95-5.36 11.95-11.95 0-3.19-1.24-6.19-3.5-8.43Zm-8.46 18.37h-.01a9.9 9.9 0 0 1-5.05-1.38l-.36-.22-3.7.97.99-3.6-.24-.37a9.92 9.92 0 0 1-1.52-5.3c0-5.48 4.46-9.94 9.94-9.94 2.65 0 5.15 1.03 7.03 2.91a9.88 9.88 0 0 1 2.91 7.03c0 5.48-4.46 9.94-9.99 9.9Zm5.45-7.44c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35Z"/></svg>
+              <span>WhatsApp</span>
+            </a>
+            <button
+              id="btn-share-detail"
+              type="button"
+              data-share-title="${escapeHtml(stop.name)}"
+              data-share-text="${escapeHtml(`Parada ${stop.name} (${modeLabel(stop.mode)}) en ${APP_NAME}`)}"
+              data-share-url="${escapeHtml(shareUrl)}"
+              title="Copiar o compartir enlace"
+              aria-label="Compartir enlace de la parada"
+              class="min-h-[44px] min-w-[44px] px-2.5 inline-flex items-center justify-center rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>
+            </button>
+            <button id="btn-toggle-fav" type="button" class="min-h-[44px] px-3.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
+              ${isFav ? '★ Guardada' : '☆ Guardar'}
+            </button>
+          </div>
         </div>
 
         <div>
@@ -940,6 +1323,36 @@ async function bootstrap() {
           <p class="mt-0.5 text-[13px] font-semibold text-slate-700 dark:text-[#b4bfd4] tabular-nums">
             ${escapeHtml(modeLabel(stop.mode))} · Parada ${escapeHtml(stop.code)}${escapeHtml(mun)}
           </p>
+          ${
+            isFav
+              ? `
+            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-[#98a5c2] mr-1">Etiqueta:</span>
+              ${PRESET_FAV_LABELS.map((preset) => {
+                const active = normalizeText(currentFavLabel) === normalizeText(preset);
+                const icon = preset === 'Casa' ? '🏠' : preset === 'Trabajo' ? '💼' : '🎓';
+                return `
+                  <button
+                    type="button"
+                    data-fav-preset-key="${escapeHtml(key)}"
+                    data-fav-preset-val="${escapeHtml(preset)}"
+                    class="fav-preset-btn min-h-[34px] px-2.5 rounded-xl text-xs font-bold border cursor-pointer active:scale-95 ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-[#7ee0c6] dark:text-[#18202c] dark:border-[#7ee0c6]'
+                        : 'bg-white text-slate-800 border-slate-300 dark:bg-[#2f374b] dark:text-[#d5dceb] dark:border-[#434e6b]'
+                    }"
+                  >${icon} ${preset}</button>
+                `;
+              }).join('')}
+              ${
+                currentFavLabel
+                  ? `<button type="button" data-fav-clear-key="${escapeHtml(key)}" class="fav-clear-btn min-h-[34px] px-2.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-[#f28b82] dark:border-red-900/50 cursor-pointer active:scale-95">Quitar</button>`
+                  : ''
+              }
+            </div>
+          `
+              : ''
+          }
         </div>
 
         <div class="pt-2 border-t border-slate-300 dark:border-[#3c4660]">
@@ -972,17 +1385,53 @@ async function bootstrap() {
   };
 
   const renderRouteDetail = (route: Route) => {
-    const routeStops = state.stops.filter(
+    const directions = buildOrderedDirections(route, state.stops);
+    const activeDirIdx = Math.min(state.selectedRouteDir, Math.max(0, directions.length - 1));
+    const currentDir = directions[activeDirIdx];
+    const orderedStops = currentDir ? currentDir.stops : [];
+    const totalUniqueStops = state.stops.filter(
       (s) => s.mode === route.mode && s.lines.includes(route.id)
+    ).length;
+
+    const rKey = routeKey(route);
+    const shareUrl = buildShareLink('linea', rKey);
+    const waHref = buildWhatsAppShareHref(
+      `Mira el recorrido y paradas de la línea ${route.id} (${route.name}) en ${APP_NAME}:`,
+      shareUrl
     );
+    const accent = modeAccentColor(route.mode, state.darkTheme);
 
     return `
-      <div class="space-y-4">
-        <div class="flex items-center justify-between">
-          <button id="btn-back-detail" type="button" class="min-h-[46px] px-3 -ml-1 inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
+      <div class="space-y-3.5">
+        <div class="flex items-center justify-between gap-2">
+          <button id="btn-back-detail" type="button" class="min-h-[44px] px-3 -ml-1 inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-sm font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg>
             Todas las líneas
           </button>
+          <div class="flex items-center gap-1.5">
+            <a
+              href="${escapeHtml(waHref)}"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Enviar línea por WhatsApp"
+              class="min-h-[44px] px-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold active:scale-95 ui-transition shadow-2xs"
+            >
+              <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.06 0C5.47 0 .11 5.36.11 11.95c0 2.11.55 4.17 1.6 5.98L0 24l6.23-1.63a11.9 11.9 0 0 0 5.83 1.49h.01c6.59 0 11.95-5.36 11.95-11.95 0-3.19-1.24-6.19-3.5-8.43Zm-8.46 18.37h-.01a9.9 9.9 0 0 1-5.05-1.38l-.36-.22-3.7.97.99-3.6-.24-.37a9.92 9.92 0 0 1-1.52-5.3c0-5.48 4.46-9.94 9.94-9.94 2.65 0 5.15 1.03 7.03 2.91a9.88 9.88 0 0 1 2.91 7.03c0 5.48-4.46 9.94-9.99 9.9Zm5.45-7.44c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35Z"/></svg>
+              <span>WhatsApp</span>
+            </a>
+            <button
+              id="btn-share-detail"
+              type="button"
+              data-share-title="${escapeHtml(`Línea ${route.id} · ${route.name}`)}"
+              data-share-text="${escapeHtml(`Línea ${route.id} (${route.name}) en ${APP_NAME}`)}"
+              data-share-url="${escapeHtml(shareUrl)}"
+              title="Copiar o compartir enlace"
+              aria-label="Compartir enlace de la línea"
+              class="min-h-[44px] min-w-[44px] px-2.5 inline-flex items-center justify-center rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>
+            </button>
+          </div>
         </div>
 
         <div class="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b]">
@@ -990,17 +1439,78 @@ async function bootstrap() {
           <div class="min-w-0">
             <h2 class="text-lg font-extrabold text-slate-950 dark:text-[#edf1f7] leading-snug">${escapeHtml(route.name)}</h2>
             <p class="text-[13px] font-semibold text-slate-700 dark:text-[#b4bfd4]">
-              ${escapeHtml(modeLabel(route.mode))} · ${routeStops.length} paradas${
+              ${escapeHtml(modeLabel(route.mode))} · ${totalUniqueStops} paradas${
                 state.lineVehicles.length > 0 ? ` · ${state.lineVehicles.length} buses en ruta` : ''
               }
             </p>
           </div>
         </div>
 
+        ${
+          directions.length > 1
+            ? `
+          <div class="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b]">
+            ${directions
+              .map(
+                (dir, idx) => `
+              <button
+                type="button"
+                data-route-dir="${idx}"
+                class="route-dir-btn min-h-[42px] px-3 py-1.5 rounded-xl text-sm font-extrabold cursor-pointer active:scale-95 ui-transition ${
+                  idx === activeDirIdx
+                    ? 'bg-slate-900 text-white dark:bg-[#7ee0c6] dark:text-[#18202c]'
+                    : 'text-slate-700 dark:text-[#d5dceb] hover:bg-slate-100 dark:hover:bg-[#384158]'
+                }"
+              >
+                ${escapeHtml(dir.label)} (${dir.stops.length})
+              </button>
+            `
+              )
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+
+        ${
+          currentDir?.subtitle
+            ? `<p class="px-1 text-xs font-bold text-slate-700 dark:text-[#b4bfd4] truncate">${escapeHtml(currentDir.subtitle)}</p>`
+            : ''
+        }
+
         <div class="pt-1">
           ${
-            routeStops.length > 0
-              ? routeStops.map((s) => renderStopRow(s)).join('')
+            orderedStops.length > 0
+              ? orderedStops
+                  .map((s, idx) => {
+                    const isFirst = idx === 0;
+                    const isLast = idx === orderedStops.length - 1;
+                    const munStr = s.municipality ? ` · ${s.municipality}` : '';
+                    return `
+                      <button
+                        type="button"
+                        data-stop-key="${escapeHtml(stopKey(s))}"
+                        class="stop-row w-full flex items-stretch gap-3 text-left group cursor-pointer"
+                      >
+                        <div class="w-7 flex flex-col items-center shrink-0">
+                          <div class="w-0.5 flex-1 ${isFirst ? 'bg-transparent' : 'bg-slate-300 dark:bg-[#4c5878]'}"></div>
+                          <span
+                            class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-extrabold tabular-nums shrink-0 shadow-2xs"
+                            style="background-color:${isFirst || isLast ? accent : '#ffffff'};color:${isFirst || isLast ? '#ffffff' : '#0f172a'};border:2px solid ${accent}"
+                          >${idx + 1}</span>
+                          <div class="w-0.5 flex-1 ${isLast ? 'bg-transparent' : 'bg-slate-300 dark:bg-[#4c5878]'}"></div>
+                        </div>
+                        <div class="flex-1 min-w-0 my-1 py-2.5 px-3 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] group-hover:border-slate-400 dark:group-hover:border-[#7ee0c6] group-active:scale-[0.99] ui-transition flex items-center justify-between gap-2">
+                          <div class="min-w-0">
+                            <div class="text-[14.5px] font-bold text-slate-950 dark:text-[#edf1f7] truncate">${escapeHtml(s.name)}</div>
+                            <div class="text-xs font-medium text-slate-600 dark:text-[#b4bfd4] truncate tabular-nums">Cód. ${escapeHtml(s.code)}${escapeHtml(munStr)}</div>
+                          </div>
+                          <span class="text-slate-500 dark:text-[#98a5c2] text-lg font-bold shrink-0">›</span>
+                        </div>
+                      </button>
+                    `;
+                  })
+                  .join('')
               : `<p class="py-4 text-sm font-medium text-slate-700 dark:text-[#b4bfd4]">Consulta las paradas directamente sobre el trazado en el mapa.</p>`
           }
         </div>
@@ -1062,20 +1572,28 @@ async function bootstrap() {
     }
 
     if (state.tab === 'favoritos') {
-      const favStops = Array.from(state.favorites)
-        .map((k) => state.stopsByKey.get(k))
-        .filter((s): s is Stop => s !== undefined)
-        .filter((s) => matchesMode(s.mode));
+      const favStops = getOrderedFavoriteStops(true);
 
       if (favStops.length === 0) {
         panelBody.innerHTML = `
           <div class="py-12 px-4 rounded-2xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-center space-y-2">
             <p class="text-base font-bold text-slate-900 dark:text-[#edf1f7]">Aún no tienes paradas guardadas</p>
-            <p class="text-sm text-slate-700 dark:text-[#b4bfd4] max-w-xs mx-auto">Toca cualquier parada en el mapa o en el buscador y pulsa "Guardar" para ver sus tiempos al instante.</p>
+            <p class="text-sm text-slate-700 dark:text-[#b4bfd4] max-w-xs mx-auto">Toca cualquier parada en el mapa o en el buscador y pulsa "Guardar" para ver sus próximas salidas sin tener que abrirlas.</p>
           </div>
         `;
       } else {
-        panelBody.innerHTML = favStops.map((s) => renderStopRow(s)).join('');
+        const keyLimit = Math.min(3, favStops.length);
+        panelBody.innerHTML = `
+          <div class="mb-2.5 flex items-center justify-between gap-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-[#b4bfd4]">
+              Próximas salidas · ${keyLimit} ${keyLimit === 1 ? 'parada clave' : 'paradas clave'}
+            </span>
+            <button id="btn-refresh-favs" type="button" class="min-h-[36px] px-3 rounded-xl bg-white dark:bg-[#2f374b] border border-slate-300 dark:border-[#434e6b] text-xs font-bold text-slate-900 dark:text-[#edf1f7] active:scale-95 cursor-pointer">
+              Actualizar
+            </button>
+          </div>
+          <div>${favStops.map((s, idx) => renderFavoriteStopCard(s, idx < 3, true)).join('')}</div>
+        `;
         wireDynamicHandlers();
       }
       return;
@@ -1093,18 +1611,17 @@ async function bootstrap() {
 
     let html = '';
 
-    // Acceso rápido a favoritas en 1 toque nada más abrir
-    const quickFavs = Array.from(state.favorites)
-      .map((k) => state.stopsByKey.get(k))
-      .filter((s): s is Stop => s !== undefined)
-      .filter((s) => matchesMode(s.mode))
-      .slice(0, 4);
+    // Acceso rápido a favoritas en 1 toque con próximas salidas en las 3 paradas clave
+    const quickFavs = getKeyFavoriteStops(3);
 
     if (quickFavs.length > 0) {
       html += `
         <div class="mb-3.5">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-[#b4bfd4] mb-2">Acceso rápido · Favoritas</h3>
-          <div>${quickFavs.map((s) => renderStopRow(s)).join('')}</div>
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-[#b4bfd4]">Acceso rápido · Favoritas</h3>
+            <button id="btn-refresh-favs" type="button" class="text-xs font-bold text-emerald-800 dark:text-[#7ee0c6] cursor-pointer">Actualizar</button>
+          </div>
+          <div>${quickFavs.map((s) => renderFavoriteStopCard(s, true, false)).join('')}</div>
         </div>
       `;
     }
@@ -1188,17 +1705,118 @@ async function bootstrap() {
     document.getElementById('btn-refresh-arrivals')?.addEventListener('click', () => {
       void refreshSelectedStopArrivals(false);
     });
+    document.getElementById('btn-refresh-favs')?.addEventListener('click', () => {
+      void loadFavoritePreviews(true);
+    });
+
+    panelBody.querySelectorAll<HTMLButtonElement>('.route-dir-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const dir = Number(btn.dataset.routeDir || '0');
+        state.selectedRouteDir = dir;
+        renderPanel();
+      });
+    });
+
+    document.getElementById('btn-share-detail')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const title = btn.dataset.shareTitle || APP_NAME;
+      const text = btn.dataset.shareText || APP_NAME;
+      const url = btn.dataset.shareUrl || window.location.href;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title, text, url });
+          return;
+        } catch {
+          // si cancela o falla Share API, copiar enlace como alternativa
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast('Enlace copiado al portapapeles');
+      } catch {
+        showToast('Comparte desde la barra de direcciones');
+      }
+    });
+
     document.getElementById('btn-toggle-fav')?.addEventListener('click', () => {
       if (!state.selectedStop) return;
       const key = stopKey(state.selectedStop);
       if (state.favorites.has(key)) {
         state.favorites.delete(key);
+        state.favoriteLabels.delete(key);
+        saveFavoriteLabels(state.favoriteLabels);
       } else {
         state.favorites.add(key);
+        if (state.arrivals) {
+          state.favPreviews.set(key, {
+            fetchedAt: Date.now(),
+            loading: false,
+            result: state.arrivals,
+          });
+        }
       }
       saveFavorites(state.favorites);
       renderPanel();
     });
+
+    panelBody.querySelectorAll<HTMLButtonElement>('.fav-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.favEditKey;
+        if (!key) return;
+        state.editingFavLabelKey = state.editingFavLabelKey === key ? null : key;
+        renderPanel();
+      });
+    });
+
+    panelBody.querySelectorAll<HTMLButtonElement>('.fav-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.favPresetKey;
+        const val = btn.dataset.favPresetVal;
+        if (!key || !val) return;
+        const current = state.favoriteLabels.get(key);
+        if (current && normalizeText(current) === normalizeText(val)) {
+          state.favoriteLabels.delete(key);
+        } else {
+          state.favoriteLabels.set(key, val);
+        }
+        state.editingFavLabelKey = null;
+        saveFavoriteLabels(state.favoriteLabels);
+        renderPanel();
+        void loadFavoritePreviews(false);
+      });
+    });
+
+    panelBody.querySelectorAll<HTMLButtonElement>('.fav-clear-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.favClearKey;
+        if (!key) return;
+        state.favoriteLabels.delete(key);
+        state.editingFavLabelKey = null;
+        saveFavoriteLabels(state.favoriteLabels);
+        renderPanel();
+      });
+    });
+
+    panelBody.querySelectorAll<HTMLFormElement>('.fav-custom-form').forEach((form) => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const key = form.dataset.favCustomForm;
+        const input = form.querySelector('input');
+        if (!key || !input) return;
+        const val = input.value.trim().slice(0, 24);
+        if (val) {
+          state.favoriteLabels.set(key, val);
+        } else {
+          state.favoriteLabels.delete(key);
+        }
+        state.editingFavLabelKey = null;
+        saveFavoriteLabels(state.favoriteLabels);
+        renderPanel();
+        void loadFavoritePreviews(false);
+      });
+    });
+
     document.getElementById('btn-locate-inline')?.addEventListener('click', requestUserLocation);
   };
 
@@ -1263,12 +1881,17 @@ async function bootstrap() {
       state.tab = target;
       state.selectedStop = null;
       state.selectedRoute = null;
+      state.selectedRouteDir = 0;
       stopAutoRefresh();
+      syncUrlAndTitle();
       map.setSelectedStop(null, false);
       map.setSelectedRoute(null, false);
       map.setVehicles([]);
       applySheetSnap('half');
       renderPanel();
+      if (target === 'favoritos' || target === 'explorar') {
+        void loadFavoritePreviews(false);
+      }
     });
   });
 
@@ -1283,6 +1906,9 @@ async function bootstrap() {
           : new Set<TransitMode>([nextMode]);
       map.setVisibleModes(visible);
       renderPanel();
+      if (!state.selectedStop && !state.selectedRoute && (state.tab === 'favoritos' || state.tab === 'explorar')) {
+        void loadFavoritePreviews(false);
+      }
     });
   });
 
@@ -1352,8 +1978,13 @@ async function bootstrap() {
     }
   };
 
+  const initialParams = new URLSearchParams(window.location.search);
+  const hasInitialDeepLink = Boolean(initialParams.get('parada') || initialParams.get('linea'));
+
   applySheetSnap('peek', false);
-  void autoCenterIfPermitted();
+  if (!hasInitialDeepLink) {
+    void autoCenterIfPermitted();
+  }
 
   try {
     const network = await loadNetworkData();
@@ -1368,7 +1999,36 @@ async function bootstrap() {
     for (const r of state.routes) state.routesByKey.set(routeKey(r), r);
 
     map.setData(state.stops, state.routes);
-    renderPanel();
+
+    const paradaParam = initialParams.get('parada')?.trim();
+    const lineaParam = initialParams.get('linea')?.trim();
+
+    if (paradaParam) {
+      const matchedStop =
+        state.stopsByKey.get(paradaParam) ||
+        state.stops.find(
+          (s) => s.id === paradaParam || s.code === paradaParam || s.apiId === paradaParam
+        );
+      if (matchedStop) {
+        await selectStop(matchedStop);
+      } else {
+        renderPanel();
+        void loadFavoritePreviews(false);
+      }
+    } else if (lineaParam) {
+      const matchedRoute =
+        state.routesByKey.get(lineaParam) ||
+        state.routes.find((r) => r.id === lineaParam);
+      if (matchedRoute) {
+        await selectRoute(matchedRoute);
+      } else {
+        renderPanel();
+        void loadFavoritePreviews(false);
+      }
+    } else {
+      renderPanel();
+      void loadFavoritePreviews(false);
+    }
   } catch {
     panelBody.innerHTML = `
       <div class="py-10 text-center text-sm font-semibold text-red-700 dark:text-[#f28b82]">
