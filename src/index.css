@@ -31,7 +31,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Barra de desplazamiento discreta */
 .thin-scroll {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
