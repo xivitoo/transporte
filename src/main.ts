@@ -540,20 +540,29 @@ async function bootstrap() {
     }, 2400);
   };
 
+  const DEFAULT_META_DESC =
+    'Consulta horarios Online y Offline, paradas cercanas, recorridos y tiempos de Bus Urbano, Interurbano (CTAGR) y Metro en Transporte Público Granada by XivIoT.';
+
   const syncUrlAndTitle = () => {
     const url = new URL(window.location.href);
     url.searchParams.delete('parada');
     url.searchParams.delete('linea');
 
+    let nextDesc = DEFAULT_META_DESC;
     if (state.selectedStop) {
       url.searchParams.set('parada', stopKey(state.selectedStop));
       document.title = `${state.selectedStop.name} · ${APP_NAME}`;
+      nextDesc = `Horarios Online y Offline de la parada ${state.selectedStop.name} (${modeLabel(state.selectedStop.mode)}, Cód. ${state.selectedStop.code}) en ${APP_NAME}.`;
     } else if (state.selectedRoute) {
       url.searchParams.set('linea', routeKey(state.selectedRoute));
       document.title = `Línea ${state.selectedRoute.id} · ${APP_NAME}`;
+      nextDesc = `Recorrido Ida/Vuelta y paradas de la línea ${state.selectedRoute.id} (${state.selectedRoute.name}) en ${APP_NAME}.`;
     } else {
       document.title = APP_NAME;
     }
+
+    const descMeta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (descMeta) descMeta.content = nextDesc;
 
     window.history.replaceState(null, '', url.toString());
   };

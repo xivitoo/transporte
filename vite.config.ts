@@ -14,14 +14,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
+        includeAssets: ['favicon-32x32.png', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: basePath,
           name: 'Transporte Público Granada by XivIoT',
           short_name: 'Transporte Público Granada by XivIoT',
           description: 'Consulta horarios Online y Offline, paradas cercanas, recorridos y tiempos de Bus Urbano, Interurbano (CTAGR) y Metro en Transporte Público Granada by XivIoT.',
-          theme_color: '#0f172a',
-          background_color: '#f8fafc',
+          theme_color: '#1e2738',
+          background_color: '#1e2738',
           display: 'standalone',
           start_url: basePath,
           scope: basePath,
